@@ -88,7 +88,8 @@ typedef void (*SimplePatternList[])();
 
 // Removed colortwinkles since it seems to have a memory leakage problem
 //removed fire
-SimplePatternList gPatterns = {fire, pacifica_loop, colorwaves, palette_fill, juggle_w_palette,
+SimplePatternList gPatterns = {sinusoid, fire, colortwinkles, pacifica_loop, colorwaves,
+                               palette_fill, juggle_w_palette,
                                sinelon, juggle, ripple,
                                two_sin, randomparticle,
                                rainbow, rainbowWithGlitter, pride, confetti};
@@ -262,7 +263,7 @@ void juggle_w_palette() {
 void fire()
 {
   // Array of temperature readings at each simulation cell for fire animation
-  static byte heat[NUM_LEDS/2];
+  static byte heat[int round(NUM_LEDS/2.0)];
   FRAMES_PER_SECOND = 40;
 
   // Step 1.  Cool down every cell a little
@@ -282,7 +283,7 @@ void fire()
     }
  
     // Step 4.  Map from heat cells to LED colors
-    for( int j = 0; j < (NUM_LEDS/2); j++) {
+    for( int j = 0; j < ARRAY_SIZE(heat); j++) {
       //CRGB color = ColorFromPalette((CRGBPalette16) German_flag_smooth_gp, heat[j], 255);
       CRGB color = HeatColor( heat[j]);
       leds[j] = color;
@@ -552,33 +553,29 @@ void colorwaves()
 // StefanPetrick
 float speed = 0.3; // speed of the movement along the Lissajous curves
 float size = 3;    // amplitude of the curves
+uint8_t Width = NUM_LEDS;
 
 void sinusoid(){
-/*
-  for (uint8_t y = 0; y < Height; y++) {
-      for (uint8_t x = 0; x < Width; x++) {
-  
-        float cx = y + float(size * (sinf (float(speed * 0.003 * float(millis() ))) ) ) - 8;  // the 8 centers the middle on a 16x16
-        float cy = x + float(size * (cosf (float(speed * 0.0022 * float(millis()))) ) ) - 8;
-        float v = 127 * (1 + sinf ( sqrtf ( ((cx * cx) + (cy * cy)) ) ));
-        uint8_t data = v;
-        leds[XY(x, y)].r = data;
-  
-        cx = x + float(size * (sinf (speed * float(0.0021 * float(millis()))) ) ) - 8;
-        cy = y + float(size * (cosf (speed * float(0.002 * float(millis() ))) ) ) - 8;
-        v = 127 * (1 + sinf ( sqrtf ( ((cx * cx) + (cy * cy)) ) ));
-        data = v;
-        leds[XY(x, y)].b = data;
-  
-        cx = x + float(size * (sinf (speed * float(0.0041 * float(millis() ))) ) ) - 8;
-        cy = y + float(size * (cosf (speed * float(0.0052 * float(millis() ))) ) ) - 8;
-        v = 127 * (1 + sinf ( sqrtf ( ((cx * cx) + (cy * cy)) ) ));
-        data = v;
-        leds[XY(x, y)].g = data;
-  
-      }
+  FRAMES_PER_SECOND = 1000;
+  for (uint8_t x = 0; x < Width; x++) {
+    float cx = float(size * (sinf (float(speed * 0.003 * float(millis() ))) ) ) - 8;  // the 8 centers the middle on a 16x16
+    float cy = x + float(size * (cosf (float(speed * 0.0022 * float(millis()))) ) ) - 8;
+    float v = 127 * (1 + sinf ( sqrtf ( ((cx * cx) + (cy * cy)) ) ));
+    uint8_t data = v;
+    leds[x].r = data;
+    
+    cx = x + float(size * (sinf (speed * float(0.0021 * float(millis()))) ) ) - 8;
+    cy = float(size * (cosf (speed * float(0.002 * float(millis() ))) ) ) - 8;
+    v = 127 * (1 + sinf ( sqrtf ( ((cx * cx) + (cy * cy)) ) ));
+    data = v;
+    leds[x].b = data;
+    
+    cx = x + float(size * (sinf (speed * float(0.0041 * float(millis() ))) ) ) - 8;
+    cy = float(size * (cosf (speed * float(0.0052 * float(millis() ))) ) ) - 8;
+    v = 127 * (1 + sinf ( sqrtf ( ((cx * cx) + (cy * cy)) ) ));
+    data = v;
+    leds[x].b = data;
   }
-*/
 }
 
 
