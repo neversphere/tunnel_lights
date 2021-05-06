@@ -18,7 +18,7 @@ FASTLED_USING_NAMESPACE
 #define DATA_PIN_3  4
 //#define CLK_PIN   4
 #define LED_TYPE    WS2812B
-#define COLOR_ORDER GRB // My current strand is weird
+#define COLOR_ORDER GRB // Normal for WS2812B
 #define NUM_LEDS    75
 
 // Set up leds
@@ -88,13 +88,22 @@ typedef void (*SimplePatternList[])();
 
 // Removed colortwinkles since it seems to have a memory leakage problem
 //removed fire
-SimplePatternList gPatterns = {sinusoid, fire, colortwinkles, pacifica_loop, colorwaves,
+
+SimplePatternList gPatterns = {two_sin, fire, colortwinkles, pacifica_loop, colorwaves,
                                palette_fill, juggle_w_palette,
                                sinelon, juggle, ripple,
                                two_sin, randomparticle,
                                rainbow, rainbowWithGlitter, pride, confetti};
+                               
+                               
+
+//SimplePatternList gPatterns = {two_sin, fire, colortwinkles, pacifica_loop, colorwaves}; //low ram
+
+
 uint8_t gCurrentPatternNumber = 0;
-bool pattern_change = true;
+bool change_pattern = false;
+uint8_t blend_amount = 128;
+uint8_t blend_count = 0;
 
 // Color variables
 CRGB newcolor;
@@ -108,8 +117,13 @@ void loop()
   //memcpy(leds2, leds, NUM_LEDS * sizeof(CRGB));
 
   // Blend strips
-  blendStrip(leds2, leds, 128); // Leds is fast, led2 is displayed and slightly blured
-  
+  blendStrip(leds2, leds, blend_amount); // Leds is fast, led2 is displayed and slightly blured
+
+  if (change_pattern){
+    nextPattern();
+    //Serial.println("New pattern!");
+    //Serial.println(gCurrentPatternNumber);
+  }
   // Call the current pattern function once, updating the 'leds' array
   gPatterns[gCurrentPatternNumber]();
   
@@ -120,7 +134,8 @@ void loop()
 
   // do some periodic updates
   EVERY_N_MILLISECONDS( 20 ) { gHue++; } // slowly cycle the "base color" through the rainbow
-  EVERY_N_SECONDS( pattern_cycle_time ) { nextPattern(); } // change patterns periodically
+  // TODO: Don't call the function but set a variable so this only changes when expected
+  EVERY_N_SECONDS( pattern_cycle_time ) { change_pattern = true; } // change patterns periodically
   EVERY_N_SECONDS( secondsPerPalette ) {
     gCurrentPaletteNumber = addmod8( gCurrentPaletteNumber, 1, gGradientPaletteCount);
     targetPalette = gGradientPalettes[ gCurrentPaletteNumber ];
@@ -128,10 +143,10 @@ void loop()
   ChangePalettes();
   uint8_t maxChanges = 24; 
   nblendPaletteTowardPalette( currentPalette, targetPalette, maxChanges);
-  if (pattern_change){
-    //Serial.println("New pattern!");
-    //Serial.println(gCurrentPatternNumber);
-    pattern_change = false;
+  if (blend_count < 250){
+    blend_count += 16;
+    blend_amount = ease8InOutCubic(blend_count);
+    //blend_amount = blend_count;
   }
 }
 
@@ -180,7 +195,8 @@ void nextPattern()
 {
   // add one to the current pattern number, and wrap around at the end
   gCurrentPatternNumber = (gCurrentPatternNumber + 1) % ARRAY_SIZE( gPatterns);
-  pattern_change = true;
+  blend_count = 0; // Start blend
+  change_pattern = false;
 }
 
 void rainbow() 
@@ -407,7 +423,7 @@ void ChangePalettes() {
     switch (secondHand) {
       case  0: thisrot = 1; thatrot = 1; thisPalette=PartyColors_p; thatPalette=PartyColors_p; break;
       case  5: thisrot = 0; thatdir = 1; thatspeed = -4; thisPalette=ForestColors_p; thatPalette=OceanColors_p; break;
-      case 10: thatrot = 0; thisPalette=PartyColors_p; thatPalette=RainbowColors_p; break;
+      case 10: thatrot = 0; thisPalette=PartyColors_p; thatPalette=currentPalette; break;
       case 15: allfreq = 16; thisdir = 1; thathue = 128; break;
       case 20: thiscutoff = 96; thatcutoff = 240; break;
       case 25: thiscutoff = 96; thatdir = 0; thatcutoff = 96; thisrot = 1; break;
@@ -551,13 +567,32 @@ void colorwaves()
 
 // Sinusoid3
 // StefanPetrick
+uint8_t Width = NUM_LEDS;
 float speed = 0.3; // speed of the movement along the Lissajous curves
 float size = 3;    // amplitude of the curves
-uint8_t Width = NUM_LEDS;
 
 void sinusoid(){
   FRAMES_PER_SECOND = 1000;
-  for (uint8_t x = 0; x < Width; x++) {
+  for (uint8_t x = 0; x < NUM_LEDS; x++) {
+
+    uint16_t cx = beatsin16(2, 65535, 0);
+    uint16_t cy = x + beatsin16(3, 65535, 0, 32000);
+    uint16_t v = sin8_avr ( sqrt16 ( ((cx * cx) + (cy * cy)) ) );
+    uint8_t data = v;
+    leds[x].r = data;
+    
+    cx = beatsin16(4, 65535, 0);
+    cy = x+ beatsin16(5, 65535, 0, 32000);
+    v = sin8_avr ( sqrt16 ( ((cx * cx) + (cy * cy)) ) );
+    data = v;
+    leds[x].b = data;
+    
+    cx = beatsin16(6, 65535, 0);
+    cy = x + beatsin16(7, 65535, 0, 32000);
+    v = sin8_avr ( sqrt16 ( ((cx * cx) + (cy * cy)) ) );
+    data = v;
+    leds[x].b = data;
+    /*
     float cx = float(size * (sinf (float(speed * 0.003 * float(millis() ))) ) ) - 8;  // the 8 centers the middle on a 16x16
     float cy = x + float(size * (cosf (float(speed * 0.0022 * float(millis()))) ) ) - 8;
     float v = 127 * (1 + sinf ( sqrtf ( ((cx * cx) + (cy * cy)) ) ));
@@ -575,6 +610,7 @@ void sinusoid(){
     v = 127 * (1 + sinf ( sqrtf ( ((cx * cx) + (cy * cy)) ) ));
     data = v;
     leds[x].b = data;
+    */
   }
 }
 
