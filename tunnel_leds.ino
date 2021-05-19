@@ -19,13 +19,16 @@ FASTLED_USING_NAMESPACE
 //#define CLK_PIN   4
 #define LED_TYPE    WS2812B
 #define COLOR_ORDER GRB // Normal for WS2812B
-#define NUM_LEDS    75
+#define NUM_LEDS    30
+#define NUM_STRIPS  5
+
+#define MAX_DIMENSION ((NUM_LEDS>NUM_STRIPS) ? NUM_LEDS : NUM_STRIPS)
 
 // Set up leds
 CRGB leds[NUM_LEDS];
-CRGB leds2[NUM_LEDS];
-CRGB leds3[NUM_LEDS];
-CRGB leds4[NUM_LEDS];
+CRGB leds2[NUM_LEDS*NUM_STRIPS];
+
+const bool    kMatrixSerpentineLayout = true;
 
 //Global Palettes
 CRGBPalette16 thisPalette;
@@ -49,19 +52,15 @@ uint8_t secondsPerPalette = 25;
 
 int pixelnumber = 0;
 // TODO(change this to particles to make generic)
-uint8_t noise_arr[NUM_LEDS];
-static uint32_t x;
-static uint32_t y;
-static uint32_t z;
 
 #define BRIGHTNESS 255
 int FRAMES_PER_SECOND = 20;
 
 void setup() {  
   // tell FastLED about the LED strip configuration
-  FastLED.addLeds<LED_TYPE,DATA_PIN,COLOR_ORDER>(leds2, NUM_LEDS).setCorrection(TypicalLEDStrip);
-  FastLED.addLeds<LED_TYPE,DATA_PIN_2,COLOR_ORDER>(leds4, NUM_LEDS).setCorrection(TypicalLEDStrip); // Pin 2 is led array 4 for additional delay
-  FastLED.addLeds<LED_TYPE,DATA_PIN_3,COLOR_ORDER>(leds3, NUM_LEDS).setCorrection(TypicalLEDStrip); // Cause why not?
+  FastLED.addLeds<LED_TYPE,DATA_PIN,COLOR_ORDER>(leds2, NUM_LEDS*NUM_STRIPS).setCorrection(TypicalLEDStrip);
+  //FastLED.addLeds<LED_TYPE,DATA_PIN_2,COLOR_ORDER>(leds4, NUM_LEDS).setCorrection(TypicalLEDStrip); // Pin 2 is led array 4 for additional delay
+  //FastLED.addLeds<LED_TYPE,DATA_PIN_3,COLOR_ORDER>(leds3, NUM_LEDS).setCorrection(TypicalLEDStrip); // Cause why not?
 
   FastLED.setDither(true);
   FastLED.setCorrection(TypicalLEDStrip);
@@ -86,19 +85,11 @@ uint16_t pattern_cycle_time = 20;
 // List of patterns to cycle through.  Each is defined as a separate function below.
 typedef void (*SimplePatternList[])();
 
-// Removed colortwinkles since it seems to have a memory leakage problem
-//removed fire
-
-SimplePatternList gPatterns = {two_sin, fire, colortwinkles, pacifica_loop, colorwaves,
+SimplePatternList gPatterns = {fire, colortwinkles, pacifica_loop, colorwaves,
                                palette_fill, juggle_w_palette,
                                sinelon, juggle, ripple,
                                two_sin, randomparticle,
                                rainbow, rainbowWithGlitter, pride, confetti};
-                               
-                               
-
-//SimplePatternList gPatterns = {two_sin, fire, colortwinkles, pacifica_loop, colorwaves}; //low ram
-
 
 uint8_t gCurrentPatternNumber = 0;
 bool change_pattern = false;
@@ -111,14 +102,24 @@ uint8_t gHue = 0; // rotating "base color" used by many of the patterns
 
 void loop()
 {
-  // Move led strips back (time == distance)
-  memcpy(leds4, leds3, NUM_LEDS * sizeof(CRGB));
-  memcpy(leds3, leds2, NUM_LEDS * sizeof(CRGB));
-  //memcpy(leds2, leds, NUM_LEDS * sizeof(CRGB));
+  if (gCurrentPatternNumber != 0) {
+    // Current Pattern is non matrix based
 
-  // Blend strips
-  blendStrip(leds2, leds, blend_amount); // Leds is fast, led2 is displayed and slightly blured
-
+    // Move led strips back (time == distance)
+    // My test wiring setup is a serpintine wiring so I need to invert each strip  
+    for( int strip = 3; strip >= 0; strip--){
+      for( uint16_t i = 0; i < NUM_LEDS; i++) {
+        leds2[(strip+1)*NUM_LEDS+(NUM_LEDS-1)-i] = leds2[(strip*NUM_LEDS)+i]; //next strip num * strip len + inverted count = cur strip num * strip len + count
+      }
+    }
+    
+    //memcpy(leds4, leds3, NUM_LEDS * sizeof(CRGB));
+    //memcpy(leds3, leds2, NUM_LEDS * sizeof(CRGB));
+    //memcpy(leds2, leds, NUM_LEDS * sizeof(CRGB));
+  
+    // Blend strips
+    blendStrip(leds2, leds, blend_amount); // Leds is fast, led2 is displayed and slightly blured
+  }
   if (change_pattern){
     nextPattern();
     //Serial.println("New pattern!");
@@ -146,7 +147,6 @@ void loop()
   if (blend_count < 250){
     blend_count += 16;
     blend_amount = ease8InOutCubic(blend_count);
-    //blend_amount = blend_count;
   }
 }
 
@@ -279,16 +279,16 @@ void juggle_w_palette() {
 void fire()
 {
   // Array of temperature readings at each simulation cell for fire animation
-  static byte heat[int round(NUM_LEDS/2.0)];
+  static byte heat[uint16_t round(NUM_LEDS/2.0)];
   FRAMES_PER_SECOND = 40;
 
   // Step 1.  Cool down every cell a little
-    for( int i = 0; i < NUM_LEDS; i++) {
+    for( uint16_t i = 0; i < NUM_LEDS; i++) {
       heat[i] = qsub8( heat[i],  random8(0, ((COOLING * 10) / NUM_LEDS) + 2));
     }
   
     // Step 2.  Heat from each cell drifts 'up' and diffuses a little
-    for( int k= ARRAY_SIZE(heat) - 1; k >= 2; k--) {
+    for( uint16_t k= ARRAY_SIZE(heat) - 1; k >= 2; k--) {
       heat[k] = (heat[k - 1] + heat[k - 2] + heat[k - 2] ) / 3; 
     }
     
@@ -299,7 +299,7 @@ void fire()
     }
  
     // Step 4.  Map from heat cells to LED colors
-    for( int j = 0; j < ARRAY_SIZE(heat); j++) {
+    for( uint16_t j = 0; j < ARRAY_SIZE(heat); j++) {
       //CRGB color = ColorFromPalette((CRGBPalette16) German_flag_smooth_gp, heat[j], 255);
       CRGB color = HeatColor( heat[j]);
       leds[j] = color;
@@ -563,58 +563,6 @@ void colorwaves()
   }
 }
 
-// Insert new patterns here
-
-// Sinusoid3
-// StefanPetrick
-uint8_t Width = NUM_LEDS;
-float speed = 0.3; // speed of the movement along the Lissajous curves
-float size = 3;    // amplitude of the curves
-
-void sinusoid(){
-  FRAMES_PER_SECOND = 1000;
-  for (uint8_t x = 0; x < NUM_LEDS; x++) {
-
-    uint16_t cx = beatsin16(2, 65535, 0);
-    uint16_t cy = x + beatsin16(3, 65535, 0, 32000);
-    uint16_t v = sin8_avr ( sqrt16 ( ((cx * cx) + (cy * cy)) ) );
-    uint8_t data = v;
-    leds[x].r = data;
-    
-    cx = beatsin16(4, 65535, 0);
-    cy = x+ beatsin16(5, 65535, 0, 32000);
-    v = sin8_avr ( sqrt16 ( ((cx * cx) + (cy * cy)) ) );
-    data = v;
-    leds[x].b = data;
-    
-    cx = beatsin16(6, 65535, 0);
-    cy = x + beatsin16(7, 65535, 0, 32000);
-    v = sin8_avr ( sqrt16 ( ((cx * cx) + (cy * cy)) ) );
-    data = v;
-    leds[x].b = data;
-    /*
-    float cx = float(size * (sinf (float(speed * 0.003 * float(millis() ))) ) ) - 8;  // the 8 centers the middle on a 16x16
-    float cy = x + float(size * (cosf (float(speed * 0.0022 * float(millis()))) ) ) - 8;
-    float v = 127 * (1 + sinf ( sqrtf ( ((cx * cx) + (cy * cy)) ) ));
-    uint8_t data = v;
-    leds[x].r = data;
-    
-    cx = x + float(size * (sinf (speed * float(0.0021 * float(millis()))) ) ) - 8;
-    cy = float(size * (cosf (speed * float(0.002 * float(millis() ))) ) ) - 8;
-    v = 127 * (1 + sinf ( sqrtf ( ((cx * cx) + (cy * cy)) ) ));
-    data = v;
-    leds[x].b = data;
-    
-    cx = x + float(size * (sinf (speed * float(0.0041 * float(millis() ))) ) ) - 8;
-    cy = float(size * (cosf (speed * float(0.0052 * float(millis() ))) ) ) - 8;
-    v = 127 * (1 + sinf ( sqrtf ( ((cx * cx) + (cy * cy)) ) ));
-    data = v;
-    leds[x].b = data;
-    */
-  }
-}
-
-
 // Color twinkles
 #define STARTING_BRIGHTNESS 64
 #define FADE_IN_SPEED       32
@@ -854,4 +802,135 @@ void pacifica_deepen_colors()
     leds[i].green= scale8( leds[i].green, 200); 
     leds[i] |= CRGB( 2, 5, 7);
   }
+}
+
+
+/********
+ * Noise Matrix
+ */
+
+// The 16 bit version of our coordinates
+static uint16_t x;
+static uint16_t y;
+static uint16_t z;
+
+// We're using the x/y dimensions to map to the x/y pixels on the matrix.  We'll
+// use the z-axis for "time".  speed determines how fast time moves forward.  Try
+// 1 for a very slow moving effect, or 60 for something that ends up looking like
+// water.
+uint16_t speed = 20; // speed is set dynamically once we've started up
+
+// Scale determines how far apart the pixels in our noise matrix are.  Try
+// changing these values around to see how it affects the motion of the display.  The
+// higher the value of scale, the more "zoomed out" the noise iwll be.  A value
+// of 1 will be so zoomed in, you'll mostly see solid colors.
+uint16_t scale = 30; // scale is set dynamically once we've started up
+
+// This is the array that we keep our computed noise values in
+uint8_t noise[MAX_DIMENSION][MAX_DIMENSION];
+
+// If true loop color
+uint8_t       colorLoop = 1;
+
+void noise_from_palette()
+{
+  // generate noise data
+  fillnoise8();
+  
+  // convert the noise data to colors in the LED array
+  // using the current palette
+  mapNoiseToLEDsUsingPalette();
+}
+
+// Fill the x/y array of 8-bit noise values using the inoise8 function.
+void fillnoise8() {
+  // If we're runing at a low "speed", some 8-bit artifacts become visible
+  // from frame-to-frame.  In order to reduce this, we can do some fast data-smoothing.
+  // The amount of data smoothing we're doing depends on "speed".
+  uint8_t dataSmoothing = 0;
+  if( speed < 50) {
+    dataSmoothing = 200 - (speed * 4);
+  }
+  
+  for(int i = 0; i < MAX_DIMENSION; i++) {
+    int ioffset = scale * i;
+    for(int j = 0; j < MAX_DIMENSION; j++) {
+      int joffset = scale * j;
+      
+      uint8_t data = inoise8(x + ioffset,y + joffset,z);
+
+      // The range of the inoise8 function is roughly 16-238.
+      // These two operations expand those values out to roughly 0..255
+      // You can comment them out if you want the raw noise data.
+      data = qsub8(data,16);
+      data = qadd8(data,scale8(data,39));
+
+      if( dataSmoothing ) {
+        uint8_t olddata = noise[i][j];
+        uint8_t newdata = scale8( olddata, dataSmoothing) + scale8( data, 256 - dataSmoothing);
+        data = newdata;
+      }
+      
+      noise[i][j] = data;
+    }
+  }
+  
+  z += speed;
+  
+  // apply slow drift to X and Y, just for visual variation.
+  x += speed / 8;
+  y -= speed / 16;
+}
+
+void mapNoiseToLEDsUsingPalette()
+{
+  static uint8_t ihue=0;
+  
+  for(int i = 0; i < NUM_LEDS; i++) {
+    for(int j = 0; j < NUM_STRIPS; j++) {
+      // We use the value at the (i,j) coordinate in the noise
+      // array for our brightness, and the flipped value from (j,i)
+      // for our pixel's index into the color palette.
+
+      uint8_t index = noise[j][i];
+      uint8_t bri =   noise[i][j];
+
+      // if this palette is a 'loop', add a slowly-changing base value
+      if( colorLoop) { 
+        index += ihue;
+      }
+
+      // brighten up, as the color palette itself often contains the 
+      // light/dark dynamic range desired
+      if( bri > 127 ) {
+        bri = 255;
+      } else {
+        bri = dim8_raw( bri * 2);
+      }
+
+      CRGB color = ColorFromPalette( currentPalette, index, bri);
+      leds[XY(i,j)] = color;
+    }
+  }
+  
+  ihue+=1;
+}
+
+uint16_t XY( uint8_t x, uint8_t y)
+{
+  uint16_t i;
+  if( kMatrixSerpentineLayout == false) {
+    i = (y * NUM_LEDS) + x;
+  }
+  if( kMatrixSerpentineLayout == true) {
+    if( y & 0x01) {
+      // Odd rows run backwards
+      uint8_t reverseX = (NUM_LEDS - 1) - x;
+      i = (y * NUM_LEDS) + reverseX;
+    } else {
+      // Even rows run forwards
+      i = (y * NUM_LEDS) + x;
+    }
+  }
+  return i;
 }
