@@ -13,14 +13,25 @@ FASTLED_USING_NAMESPACE
 #error "Requires FastLED 3.1 or later; check github for latest code."
 #endif
 
-#define DATA_PIN    2
-#define DATA_PIN_2  3
-#define DATA_PIN_3  4
+//Control wifi to esp8266 
+
+extern "C" {
+    #include "user_interface.h"  // Required for wifi_station_connect() to work
+}
+#include <Arduino.h>
+#include <ESP8266WiFi.h> 
+#define FPM_SLEEP_MAX_TIME 0xFFFFFFF
+
+
+#define DATA_PIN    D7
+#define DATA_PIN_2  D6 
+//#define DATA_PIN_3  4
 //#define CLK_PIN   4
-#define LED_TYPE    WS2812B
-#define COLOR_ORDER GRB // Normal for WS2812B
-#define NUM_LEDS    30
-#define NUM_STRIPS  5
+#define LED_TYPE    WS2813 
+#define COLOR_ORDER RGB // Normal for WS2815
+#define NUM_LEDS    50
+#define MAX_FIRE    25 // Normally half of NUM_LEDS
+#define NUM_STRIPS  6
 
 #define MAX_DIMENSION ((NUM_LEDS>NUM_STRIPS) ? NUM_LEDS : NUM_STRIPS)
 
@@ -28,7 +39,9 @@ FASTLED_USING_NAMESPACE
 CRGB leds[NUM_LEDS];
 CRGB leds2[NUM_LEDS*NUM_STRIPS];
 
-const bool    kMatrixSerpentineLayout = true;
+static byte heat[MAX_FIRE]; // Heat map for fire animation
+
+const bool    kMatrixSerpentineLayout = false ; // Defines led wiring layout
 
 //Global Palettes
 CRGBPalette16 thisPalette;
@@ -59,12 +72,12 @@ int FRAMES_PER_SECOND = 20;
 void setup() {  
   // tell FastLED about the LED strip configuration
   FastLED.addLeds<LED_TYPE,DATA_PIN,COLOR_ORDER>(leds2, NUM_LEDS*NUM_STRIPS).setCorrection(TypicalLEDStrip);
-  //FastLED.addLeds<LED_TYPE,DATA_PIN_2,COLOR_ORDER>(leds4, NUM_LEDS).setCorrection(TypicalLEDStrip); // Pin 2 is led array 4 for additional delay
+  //FastLED.addLeds<LED_TYPE,DATA_PIN_2,COLOR_ORDER>(leds2, NUM_LEDS*NUM_STRIPS).setCorrection(TypicalLEDStrip);
   //FastLED.addLeds<LED_TYPE,DATA_PIN_3,COLOR_ORDER>(leds3, NUM_LEDS).setCorrection(TypicalLEDStrip); // Cause why not?
 
   FastLED.setDither(true);
   FastLED.setCorrection(TypicalLEDStrip);
-  FastLED.setMaxPowerInVoltsAndMilliamps(5, 1000);
+  //FastLED.setMaxPowerInVoltsAndMilliamps(12, 5000);
   // set master brightness control
   FastLED.setBrightness(BRIGHTNESS);
 
@@ -73,9 +86,14 @@ void setup() {
   thatPalette = RainbowColors_p;
   currentBlending = LINEARBLEND;
 
-  // Set up debug
-  Serial.begin(115200);
-  Serial.println("Starting.");
+  //Kill wifi
+  // Disable to allow OTA updates to occur
+  
+  wifi_station_disconnect();
+  wifi_set_opmode(NULL_MODE);
+  wifi_set_sleep_type(MODEM_SLEEP_T);
+  wifi_fpm_open();
+  wifi_fpm_do_sleep(FPM_SLEEP_MAX_TIME);
 }
 
 /*
@@ -85,11 +103,14 @@ uint16_t pattern_cycle_time = 20;
 // List of patterns to cycle through.  Each is defined as a separate function below.
 typedef void (*SimplePatternList[])();
 
+
 SimplePatternList gPatterns = {fire, colortwinkles, pacifica_loop, colorwaves,
                                palette_fill, juggle_w_palette,
-                               sinelon, juggle, ripple,
+                               sinelon, juggle, ripple, palette_fly_through,
                                two_sin, randomparticle,
                                rainbow, rainbowWithGlitter, pride, confetti};
+
+//SimplePatternList gPatterns = {palette_fly_through};                               
 
 uint8_t gCurrentPatternNumber = 0;
 bool change_pattern = false;
@@ -102,14 +123,17 @@ uint8_t gHue = 0; // rotating "base color" used by many of the patterns
 
 void loop()
 {
-  if (gCurrentPatternNumber != 0) {
+  if (gCurrentPatternNumber != 100) {
     // Current Pattern is non matrix based
 
     // Move led strips back (time == distance)
-    // My test wiring setup is a serpintine wiring so I need to invert each strip  
-    for( int strip = 3; strip >= 0; strip--){
+    for( int strip = (NUM_STRIPS - 2); strip >= 0; strip--){
       for( uint16_t i = 0; i < NUM_LEDS; i++) {
-        leds2[(strip+1)*NUM_LEDS+(NUM_LEDS-1)-i] = leds2[(strip*NUM_LEDS)+i]; //next strip num * strip len + inverted count = cur strip num * strip len + count
+        if (kMatrixSerpentineLayout) {
+          leds2[(strip+1)*NUM_LEDS+(NUM_LEDS-1)-i] = leds2[(strip*NUM_LEDS)+i]; //next strip num * strip len + inverted count = cur strip num * strip len + count
+        } else{
+          leds2[(strip+1)*NUM_LEDS+i] = leds2[(strip*NUM_LEDS)+i]; // No need to invert
+        }
       }
     }
     
@@ -279,9 +303,8 @@ void juggle_w_palette() {
 void fire()
 {
   // Array of temperature readings at each simulation cell for fire animation
-  static byte heat[uint16_t round(NUM_LEDS/2.0)];
+  
   FRAMES_PER_SECOND = 40;
-
   // Step 1.  Cool down every cell a little
     for( uint16_t i = 0; i < NUM_LEDS; i++) {
       heat[i] = qsub8( heat[i],  random8(0, ((COOLING * 10) / NUM_LEDS) + 2));
@@ -300,10 +323,10 @@ void fire()
  
     // Step 4.  Map from heat cells to LED colors
     for( uint16_t j = 0; j < ARRAY_SIZE(heat); j++) {
-      //CRGB color = ColorFromPalette((CRGBPalette16) German_flag_smooth_gp, heat[j], 255);
-      CRGB color = HeatColor( heat[j]);
+      CRGB color = ColorFromPalette((CRGBPalette16) German_flag_smooth_gp, heat[j], 255);
+      //CRGB color = HeatColor( heat[j]);
       leds[j] = color;
-      leds[(NUM_LEDS-1) - j] = color; // invert for tunnel effect
+      leds[(NUM_LEDS-1) - j] = color; // invert for tunnel effect`
     }
 }
 
@@ -464,6 +487,14 @@ void palette_fill()
   static uint8_t startindex = 0;
   startindex--;
   fill_palette( leds, NUM_LEDS, startindex, (256 / NUM_LEDS) + 1, currentPalette, 255, LINEARBLEND);
+}
+
+void palette_fly_through()
+{
+  CRGB newcolor = ColorFromPalette( currentPalette, beat8(30), 255 );
+  for ( uint16_t i = 0 ; i < NUM_LEDS; i++) {
+    leds[i] = newcolor;
+  }
 }
 
 void pride() 
@@ -840,6 +871,8 @@ void noise_from_palette()
   // convert the noise data to colors in the LED array
   // using the current palette
   mapNoiseToLEDsUsingPalette();
+  speed = beatsin8(3, 1, 20);
+  scale = beatsin8(7, 15, 25);
 }
 
 // Fill the x/y array of 8-bit noise values using the inoise8 function.
